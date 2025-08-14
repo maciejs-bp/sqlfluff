@@ -444,6 +444,43 @@ postgres_dialect.add(
 )
 
 postgres_dialect.replace(
+    InOperatorGrammar=OneOf(
+        # Regular ANSI dialect InOperatorGrammar
+        Sequence(
+            Ref.keyword("NOT", optional=True),
+            "IN",
+            OneOf(
+                Bracketed(
+                    OneOf(
+                        Delimited(
+                            Ref("Expression_A_Grammar"),
+                        ),
+                        Ref("SelectableGrammar"),
+                    ),
+                    parse_mode=ParseMode.GREEDY,
+                ),
+                Ref("FunctionSegment"),  # E.g. UNNEST()
+            ),
+        ),
+        # Postgres subquery expressions
+        Sequence(
+            Ref("ComparisonOperatorGrammar"),
+            OneOf(
+                Ref.keyword("ANY"),
+                Ref.keyword("ALL"),
+                Ref.keyword("SOME"),
+            ),
+            Bracketed(
+                OneOf(
+                    Delimited(
+                        Ref("Expression_A_Grammar"),
+                    ),
+                    Ref("SelectableGrammar"),
+                ),
+                parse_mode=ParseMode.GREEDY,
+            ),
+        )
+    ),
     LikeGrammar=OneOf("LIKE", "ILIKE", Sequence("SIMILAR", "TO")),
     StringBinaryOperatorGrammar=OneOf(Ref("ConcatSegment"), "COLLATE"),
     IsClauseGrammar=OneOf(
@@ -496,10 +533,14 @@ postgres_dialect.replace(
     ParameterNameSegment=RegexParser(
         r'[A-Z_][A-Z0-9_$]*|"[^"]*"', CodeSegment, type="parameter"
     ),
-    FunctionNameIdentifierSegment=RegexParser(
-        r"[A-Z_][A-Z0-9_$]*",
-        CodeSegment,
-        type="function_name_identifier",
+    FunctionNameIdentifierSegment=SegmentGenerator(
+        # Generate the anti template from the set of reserved keywords
+        lambda dialect: RegexParser(
+            r"[A-Z_][A-Z0-9_$]*",
+            CodeSegment,
+            type="function_name_identifier",
+            anti_template=r"^(" + r"|".join(dialect.sets("reserved_keywords")) + r")$",
+        )
     ),
     FunctionContentsExpressionGrammar=OneOf(
         Ref("ExpressionSegment"),
@@ -823,7 +864,6 @@ class AdjacentSegment(CompositeComparisonOperatorSegment):
     match_grammar = Sequence(
         Ref("MinusSegment"), Ref("PipeSegment"), Ref("MinusSegment"), allow_gaps=False
     )
-
 
 class PsqlVariableGrammar(BaseSegment):
     """PSQl Variables :thing, :'thing', :"thing"."""
